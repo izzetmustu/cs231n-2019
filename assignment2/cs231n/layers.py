@@ -27,6 +27,7 @@ def affine_forward(x, w, b):
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
+    # Y = X*W + b where X dim=N*D
     out = np.matmul(np.reshape(x,(x.shape[0], -1)),w) + b
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
@@ -60,13 +61,19 @@ def affine_backward(dout, cache):
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
+    # Store input shape
     x_shape = x.shape
-    
+    # Calculate dx 
     dx = dout.dot(w.T)
+    # Reshape it
     dx = dx.reshape(x_shape)
+    # Reshape x to multiply w
     x = np.reshape(x, (x_shape[0], -1))
+    # Calculate dw
     dw = x.T.dot(dout)
+    # Reshape x 
     x = np.reshape(x, x_shape)
+    # Calculate db
     db = np.sum(dout, axis=0)
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
@@ -93,6 +100,7 @@ def relu_forward(x):
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
+    # ReLu = max(0,x)
     out = np.maximum(0,x)
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
@@ -122,6 +130,7 @@ def relu_backward(dout, cache):
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
+    # Gradient of ReLU is the same as dout^hat where dout^hat = dout[negative numbers] = 0  
     dx = dout
     dx[np.maximum(0,x) == 0] = 0
 
@@ -203,7 +212,20 @@ def batchnorm_forward(x, gamma, beta, bn_param):
         #######################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-        pass
+        # Dictionary for intermediates
+        cache = {}
+        # Calculate sample mean and variance in batch for training
+        sample_mean = np.mean(x,axis=0)
+        sample_var = np.var(x, axis=0)
+        # Calculate running mean and variance for testing
+        running_mean = momentum * running_mean + (1 - momentum) * sample_mean
+        running_var = momentum * running_var + (1 - momentum) * sample_var
+        # Normalize the input
+        normalized = (x-sample_mean)/np.sqrt(sample_var+eps)
+        # Scale and shift the normalized features
+        out = gamma*normalized+beta
+        # Store intermadiates in cache
+        cache = (x, gamma, beta, eps, sample_mean, sample_var, normalized)
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         #######################################################################
@@ -218,7 +240,8 @@ def batchnorm_forward(x, gamma, beta, bn_param):
         #######################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-        pass
+        # Calculate batchnorm in test, instead of sample mean and variance, use running mean and variance
+        out = gamma*((x-running_mean)/np.sqrt(running_var+eps)) + beta
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         #######################################################################
@@ -260,7 +283,23 @@ def batchnorm_backward(dout, cache):
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-    pass
+    N, D = dout.shape
+    x, gamma, beta, eps, sample_mean, sample_var, normalized = cache
+    
+    # Gradients are calculated as shown in the paper
+    # https://arxiv.org/pdf/1502.03167.pdf
+    # Gradient of normalization
+    dnormalized = dout*gamma
+    # Gradient w.r.t variance
+    dvar = np.sum(dnormalized*(x-sample_mean)*(-1/2)*np.power(sample_var+eps,-3/2), axis=0)
+    # Gradient w.r.t mean
+    dmean = np.sum(dnormalized*(-1.0/np.sqrt(sample_var + eps)),axis=0) + dvar*np.sum(-2.0*(x-sample_mean), axis=0)/N
+    # Gradient w.r.t input
+    dx = dnormalized*(1/np.sqrt(sample_var+eps)) + dvar*2.0*(x-sample_mean)/N + dmean/N 
+    # Gradient w.r.t gamma
+    dgamma = np.sum(dout*normalized, axis=0)
+    # Gradient w.r.t beta
+    dbeta = np.sum(dout, axis=0)
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ###########################################################################
@@ -295,7 +334,18 @@ def batchnorm_backward_alt(dout, cache):
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-    pass
+    N, D = dout.shape
+    x, gamma, beta, eps, sample_mean, sample_var, normalized = cache
+
+    # Chain rule applied for the figure on the jupyter notebook.
+    # Gradient of normalization
+    dnormalized = dout*gamma
+    # Gradient w.r.t gamma
+    dgamma = np.sum(dout*normalized, axis=0)
+    # Gradient w.r.t beta
+    dbeta = np.sum(dout, axis=0)
+    # Gradient w.r.t input
+    dx = 1.0/(np.sqrt(sample_var + eps)*N)*(N*dnormalized - np.sum(dnormalized,axis=0) - normalized*np.sum(dnormalized*normalized,axis=0))
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ###########################################################################
@@ -341,7 +391,17 @@ def layernorm_forward(x, gamma, beta, ln_param):
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-    pass
+    # Dictionary for intermediates
+    cache = {}
+    # Calculate sample mean and variance in batch for training
+    layer_mean = np.mean(x,axis=1, keepdims=True)
+    layer_var = np.var(x, axis=1, keepdims=True)
+    # Normalize the input
+    normalized = (x-layer_mean)/np.sqrt(layer_var+eps)
+    # Scale and shift the normalized features
+    out = gamma*normalized+beta
+    # Store intermadiates in cache
+    cache = (x, gamma, beta, eps, layer_mean, layer_var, normalized)
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ###########################################################################
@@ -376,7 +436,18 @@ def layernorm_backward(dout, cache):
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-    pass
+    N, D = dout.shape
+    x, gamma, beta, eps, sample_mean, sample_var, normalized = cache
+    
+    # Chain rule applied.
+    # Gradient of normalization
+    dnormalized = dout*gamma
+    # Gradient w.r.t gamma
+    dgamma = np.sum(dout*normalized, axis=0)
+    # Gradient w.r.t beta
+    dbeta = np.sum(dout, axis=0)
+    # Gradient w.r.t input
+    dx = 1.0/(np.sqrt(sample_var + eps)*D)*(D*dnormalized - np.sum(dnormalized,axis=1, keepdims=True) - normalized*np.sum(dnormalized*normalized,axis=1, keepdims=True))
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ###########################################################################
@@ -425,7 +496,9 @@ def dropout_forward(x, dropout_param):
         #######################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-        pass
+        # Inverted dropout, divide at training time so that expected output at training time = output of test time
+        mask = (np.random.rand(*x.shape) < p)/p
+        out = x*mask
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         #######################################################################
@@ -436,8 +509,10 @@ def dropout_forward(x, dropout_param):
         # TODO: Implement the test phase forward pass for inverted dropout.   #
         #######################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
-
-        pass
+        
+        # Inverted dropout, unchanged at test time
+        out = x
+        cache = x
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         #######################################################################
@@ -468,7 +543,7 @@ def dropout_backward(dout, cache):
         #######################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-        pass
+        dx = dout*mask
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         #######################################################################

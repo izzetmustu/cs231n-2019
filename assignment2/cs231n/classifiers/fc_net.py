@@ -192,22 +192,17 @@ class FullyConnectedNet(object):
         ############################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-        if self.num_layers == 1:
-          self.params['W1'] = np.random.normal(0, scale=weight_scale, size=(input_dim, num_classes))
-          self.params['b1'] = np.zeros(num_classes)
-        elif self.num_layers == 2:
-          self.params['W1'] = np.random.normal(0, scale=weight_scale, size=(input_dim, hidden_dims[0]))
-          self.params['b1'] = np.zeros(hidden_dims[0])
-          self.params['W2'] = np.random.normal(0, scale=weight_scale, size=(hidden_dims[0], num_classes))
-          self.params['b2'] = np.zeros(num_classes)
-        else:          
-          self.params['W1'] = np.random.normal(0, scale=weight_scale, size=(input_dim, hidden_dims[0]))
-          self.params['b1'] = np.zeros(hidden_dims[0])
-          for i in range(len(hidden_dims)-1):
-            self.params['W'+str(i+2)] = np.random.normal(0, scale=weight_scale, size=(hidden_dims[i], hidden_dims[i+1]))
-            self.params['b'+str(i+2)] = np.zeros(hidden_dims[i+1])
-          self.params['W'+str(self.num_layers)] = np.random.normal(0, scale=weight_scale, size=(hidden_dims[-1], num_classes))
-          self.params['b'+str(self.num_layers)] = np.zeros(num_classes)
+        # Concatenate dimensions
+        layers = [input_dim] + hidden_dims + [num_classes]
+        for i in range (1, len(layers)):
+          # Initialize weights and biases
+          self.params['W'+str(i)] = np.random.normal(0, scale=weight_scale, size=(layers[i-1], layers[i]))
+          self.params['b'+str(i)] = np.zeros(layers[i])
+          # Initialize scale and shift parameters
+          if i != len(layers)-1:
+            if normalization == "batchnorm" or normalization == "layernorm":
+              self.params['gamma'+str(i)] = np.ones(layers[i])
+              self.params['beta'+str(i)] = np.zeros(layers[i])
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         ############################################################################
@@ -270,17 +265,28 @@ class FullyConnectedNet(object):
         ############################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-        scores = X.copy()
-        outs = {}
+        # Start with input
+        scores = X
+        # Store caches to use in loss gradient calculations
         caches = {}
 
-        for i in range(self.num_layers):
-          outs['{}'.format(i+1)], caches['{}'.format(i+1)] = affine_forward(scores, self.params['W{}'.format(i+1)], self.params['b{}'.format(i+1)])
-          scores = outs['{}'.format(i+1)]
+        for i in range(1, self.num_layers):
+          # Affine layer
+          scores, caches['{}_affine'.format(i)] = affine_forward(scores, self.params['W{}'.format(i)], self.params['b{}'.format(i)])
+          # Norm layer
+          if self.normalization == "batchnorm":
+            scores, caches['{}_batchnorm'.format(i)] = batchnorm_forward(scores, self.params['gamma{}'.format(i)], 
+              self.params['beta{}'.format(i)], bn_param=self.bn_params[i-1]) 
+          elif self.normalization == "layernorm":
+            scores, caches['{}_layernorm'.format(i)] = layernorm_forward(scores, self.params['gamma{}'.format(i)], 
+              self.params['beta{}'.format(i)], ln_param=self.bn_params[i-1]) 
           # ReLu
-          if i != self.num_layers-1:
-            outs['{}_ReLu'.format(i+1)], caches['{}_ReLu'.format(i+1)] = relu_forward(scores)
-            scores = outs['{}_ReLu'.format(i+1)]
+          scores, caches['{}_ReLu'.format(i)] = relu_forward(scores)
+          # Dropout
+          if self.use_dropout == True:
+            scores, caches['{}_dropout'.format(i)] = dropout_forward(scores, self.dropout_param)
+        # Last affine
+        scores, caches['{}_affine'.format(self.num_layers)] = affine_forward(scores, self.params['W{}'.format(self.num_layers)], self.params['b{}'.format(self.num_layers)])
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         ############################################################################
@@ -307,14 +313,33 @@ class FullyConnectedNet(object):
         ############################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
+        # Calculate softmax loss
         loss, dout = softmax_loss(scores, y)
-        loss += 0.5*np.sum(self.reg*np.sum([v*v]) for k,v in self.params.items())
+        # Calculate gradient for last layer
+        dout, grads['W{}'.format(self.num_layers)], grads['b{}'.format(self.num_layers)] = affine_backward(dout, caches['{}_affine'.format(self.num_layers)])
+        ##### IMPORTANT !!!!!!!!!!!!!!!!!!
+        ##### When I add this line below, mismatch occurs for gradient of last layer weights,
+        ##### Why should not we add this line?
+        # grads['W{}'.format(self.num_layers)] += self.reg*self.params['W{}'.format(self.num_layers)]
 
-        for i in range(self.num_layers, 0, -1):
-          dout, grads['W{}'.format(i)], grads['b{}'.format(i)] = affine_backward(dout, caches['{}'.format(i)])
-          if i != 1:
-            dout = relu_backward(dout, outs['{}_ReLu'.format(i-1)])
+        # Start from last l-1 layer and go back
+        for i in range(self.num_layers-1, 0, -1):
+          # Dropout
+          if self.use_dropout == True:
+            dout = dropout_backward(dout, caches['{}_dropout'.format(i)])
+          # ReLu
+          dout = relu_backward(dout, caches['{}_ReLu'.format(i)])
+          # Norm layer
+          if self.normalization == "batchnorm":
+            dout, grads['gamma{}'.format(i)], grads['beta{}'.format(i)] = batchnorm_backward(dout, caches['{}_batchnorm'.format(i)])
+          elif self.normalization == "layernorm":
+            dout, grads['gamma{}'.format(i)], grads['beta{}'.format(i)] = layernorm_backward(dout, caches['{}_layernorm'.format(i)])            
+          # Affine layer
+          dout, grads['W{}'.format(i)], grads['b{}'.format(i)] = affine_backward(dout, caches['{}_affine'.format(i)])
+          # Add regularization to gradients
           grads['W{}'.format(i)] += self.reg*self.params['W{}'.format(i)]
+          # Update loss by adding regularization in each layer
+          loss += 0.5*self.reg*np.sum(self.params['W{}'.format(i)]*self.params['W{}'.format(i)])
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         ############################################################################

@@ -55,7 +55,14 @@ class ThreeLayerConvNet(object):
         ############################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-        pass
+        # CNN parameters
+        self.params['W1'] = np.random.normal(0.0, weight_scale, size=(num_filters, input_dim[0], filter_size, filter_size))
+        self.params['b1'] = np.zeros(num_filters)
+        # Affine parameters
+        self.params['W2'] = np.random.normal(0.0, weight_scale, size=(num_filters*input_dim[1]*input_dim[2]//4, hidden_dim))
+        self.params['b2'] = np.zeros(hidden_dim)
+        self.params['W3'] = np.random.normal(0.0, weight_scale, size=(hidden_dim, num_classes))
+        self.params['b3'] = np.zeros(num_classes)
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         ############################################################################
@@ -95,7 +102,14 @@ class ThreeLayerConvNet(object):
         ############################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-        pass
+        # Store caches in dictionary
+        caches = {}
+        # Conv-ReLU-Pool
+        scores, caches['conv_relu_pool'] = conv_relu_pool_forward(X, self.params['W1'], self.params['b1'], conv_param, pool_param)
+        # Affine-ReLU
+        scores, caches['affine_relu'] = affine_relu_forward(scores, self.params['W2'], self.params['b2'])
+        # Affine
+        scores, caches['affine'] = affine_forward(scores, self.params['W3'], self.params['b3'])
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         ############################################################################
@@ -117,8 +131,21 @@ class ThreeLayerConvNet(object):
         # of 0.5 to simplify the expression for the gradient.                      #
         ############################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
+        
+        # Compute softmax loss
+        loss, dx = softmax_loss(scores, y)
+        # Gradients of last affine layer
+        dx, grads['W3'], grads['b3'] = affine_backward(dx, caches['affine'])
+        # Gradients of middle affine-ReLU
+        dx, grads['W2'], grads['b2'] = affine_relu_backward(dx, caches['affine_relu'])
+        # Gradients of conv-ReLU-maxpool
+        dx, grads['W1'], grads['b1'] = conv_relu_pool_backward(dx, caches['conv_relu_pool'])
 
-        pass
+        # Add regularization
+        grads['W1'] += self.reg*self.params['W1']
+        grads['W2'] += self.reg*self.params['W2']
+        grads['W3'] += self.reg*self.params['W3']
+        loss += 0.5*self.reg*(np.sum(self.params['W1']*self.params['W1']) + np.sum(self.params['W2']*self.params['W2']) + np.sum(self.params['W3']*self.params['W3']))
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         ############################################################################

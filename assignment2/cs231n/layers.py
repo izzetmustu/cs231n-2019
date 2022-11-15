@@ -588,8 +588,32 @@ def conv_forward_naive(x, w, b, conv_param):
     # Hint: you can use the function np.pad for padding.                      #
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
+    
+    # Assign variables
+    N, C, H, W = x.shape
+    F, C, HH, WW = w.shape
+    stride = conv_param['stride']
+    pad = conv_param['pad']
+    # Calculate output width and height
+    H_hat = (H+2*pad-HH)//stride + 1
+    W_hat = (W+2*pad-WW)//stride + 1
+    
+    # Add paddings
+    padded = np.pad(x, [(0, 0), (0, 0), (pad, pad), (pad, pad)], mode='constant')
 
-    pass
+    # Create empty output
+    out = np.zeros(shape=(N,F,H_hat,W_hat))
+
+    # Iterate all the images
+    for im in range(N):
+      # Iterate all the filters
+      for f in range(F):
+        # Iterate through padded image height
+        for i in range(0, padded.shape[2]-HH+1, stride):
+          # Iterate through padded image width
+          for j in range(0, padded.shape[3]-WW+1, stride):
+            # Calculate output
+            out[im,f,i//stride,j//stride] = np.sum(padded[im,:,i:i+HH,j:j+WW]*w[f])+b[f]
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ###########################################################################
@@ -618,7 +642,40 @@ def conv_backward_naive(dout, cache):
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-    pass
+    # Assign variables
+    x, w, b, conv_param = cache
+    N, C, H, W = x.shape
+    F, C, HH, WW = w.shape
+    stride = conv_param['stride']
+    pad = conv_param['pad']  
+    # Calculate output width and height
+    H_hat = (H+2*pad-HH)//stride + 1
+    W_hat = (W+2*pad-WW)//stride + 1
+    # Add paddings
+    padded = np.pad(x, [(0, 0), (0, 0), (pad, pad), (pad, pad)], mode='constant')
+    # Create gradient variables
+    dpadded = np.zeros_like(padded)
+    dw = np.zeros_like(w)
+    db = np.zeros_like(b)
+    
+    # Gradient of bias
+    db = np.sum(dout, axis=(0,2,3)) # Dim = (F,)
+
+    # Iterate all the images
+    for im in range(N):
+      # Iterate all the filters
+      for f in range(F):
+        # Iterate through padded image height
+        for i in range(0, padded.shape[2]-HH+1, stride):
+          # Iterate through padded image width
+          for j in range(0, padded.shape[3]-WW+1, stride):
+            # Gradient of padded image
+            dpadded[im,:,i:i+HH, j:j+HH] += dout[im,f,i//stride,j//stride]*w[f]
+            # Gradient of weights
+            dw[f] += dout[im,f,i//stride,j//stride]*padded[im,:,i:i+HH,j:j+WW]
+
+    # Calculate gradient of x from gradient of padded image
+    dx = dpadded[:,:,pad:-pad,pad:-pad]
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ###########################################################################
@@ -652,7 +709,29 @@ def max_pool_forward_naive(x, pool_param):
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-    pass
+    # Assign variables
+    N, C, H, W = x.shape
+    pool_height = pool_param['pool_height']
+    pool_width = pool_param['pool_width']
+    stride = pool_param['stride']
+    
+    # Calculate output dims
+    H_hat = (H-pool_height)//stride + 1
+    W_hat = (W-pool_width)//stride + 1
+
+    # Create output tensor
+    out = np.zeros(shape=(N,C,H_hat,W_hat))
+
+    # Iterate all the images
+    for im in range(N):
+      # Iterate all the channels
+      for f in range(C):
+        # Iterate through image height
+        for i in range(0, H-pool_height+1, stride):
+          # Iterate through image width
+          for j in range(0, W-pool_width+1, stride):
+            # Calculate output
+            out[im,f,i//stride,j//stride] = np.max(x[im,f,i:i+pool_height,j:j+pool_width])
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ###########################################################################
@@ -679,7 +758,28 @@ def max_pool_backward_naive(dout, cache):
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-    pass
+    # Assign variables
+    x, pool_param = cache
+    N, C, H, W = x.shape
+    pool_height = pool_param['pool_height']
+    pool_width = pool_param['pool_width']
+    stride = pool_param['stride']    
+    
+    # Create gradient 
+    dx = np.zeros_like(x)
+
+    # Iterate all the images
+    for im in range(N):
+      # Iterate all the channels
+      for f in range(C):
+        # Iterate through image height
+        for i in range(0, H-pool_height+1, stride):
+          # Iterate through image width
+          for j in range(0, W-pool_width+1, stride):
+            # Find indexes of maximums
+            indices = np.unravel_index(np.argmax(x[im,f,i:i+pool_height,j:j+pool_width]),(pool_height,pool_width))
+            # Gradient of max-pooling is router
+            dx[im,f,i+indices[0],j+indices[1]] = dout[im,f,i//stride,j//stride]
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ###########################################################################
@@ -721,7 +821,15 @@ def spatial_batchnorm_forward(x, gamma, beta, bn_param):
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-    pass
+    N, C, H, W = x.shape
+    # Change axis so that new shape becomes: N,H,W,C
+    temp = np.transpose(x, axes=[0,2,3,1])
+    # Change shape to call vanilla batchnorm funtion, new shape: N*H*W, C
+    temp = np.reshape(temp, newshape=(N*H*W,C))
+    # Implement batchnorm layer for cnn
+    out, cache = batchnorm_forward(temp, gamma, beta, bn_param) 
+    # Change output shape same as input: N,C,H,W
+    out = np.transpose(np.reshape(out, (N,H,W,C)), axes=[0,3,1,2])
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ###########################################################################
@@ -755,7 +863,15 @@ def spatial_batchnorm_backward(dout, cache):
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-    pass
+    N, C, H, W = dout.shape
+    # Change axis so that new shape becomes: N,H,W,C
+    temp = np.transpose(dout, axes=[0,2,3,1])
+    # Change shape to call vanilla batchnorm backward funtion, new shape: N*H*W, C
+    temp = np.reshape(temp, newshape=(N*H*W,C))
+    # Calculate batchnorm layer gradients for cnn
+    dx, dgamma, dbeta = batchnorm_backward_alt(temp, cache) 
+    # Change shape of input gradient same as output gradient: N,C,H,W
+    dx = np.transpose(np.reshape(dx, (N,H,W,C)), axes=[0,3,1,2])
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ###########################################################################
@@ -795,7 +911,19 @@ def spatial_groupnorm_forward(x, gamma, beta, G, gn_param):
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-    pass
+    N, C, H, W = x.shape
+    # First rearrange the shape, dim of mean and variance: N*G
+    x = np.reshape(x, newshape=(N*G, (C//G)*H*W)).T
+    # Calculate mean and variances, normalize the input
+    group_means = np.mean(x, axis=0)
+    group_variances = np.var(x, axis=0)
+    normalized = (x-group_means)/np.sqrt(group_variances+eps)
+    # Change the normalized output shape the same as input
+    normalized = np.reshape(normalized.T, newshape=(N,C,H,W))
+    # Calculate output
+    out = gamma*normalized + beta
+    # Store intermadiates in cache
+    cache = (x, gamma, beta, eps, G, group_means, group_variances, normalized)
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ###########################################################################
@@ -825,7 +953,21 @@ def spatial_groupnorm_backward(dout, cache):
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-    pass
+    N, C, H, W = dout.shape
+    x, gamma, beta, eps, G, group_means, group_variances, normalized = cache
+    element_per_group = (C//G)*H*W
+    # Gradient of beta (If keepdims=false, dbeta error becomes high in jupyter notebook)
+    dbeta = np.sum(dout, axis=(0,2,3), keepdims=True)
+    # Gradient of normalization
+    dnormalized = dout*gamma
+    # Gradient of gamma
+    dgamma = np.sum(dout*normalized, axis=(0,2,3), keepdims=True)
+    # Change normalized output shape and gradient of normalization shape as others, group_number
+    normalized = np.reshape(normalized, newshape=(N*G, (C//G)*H*W)).T
+    dnormalized = np.reshape(dnormalized, newshape=(N*G, (C//G)*H*W)).T
+    # Calculate dx and change it's shape same as x
+    dx = (1. / (element_per_group * np.sqrt(group_variances + eps)))*(element_per_group*dnormalized- (np.sum(dnormalized, axis=0, keepdims=True)) - (normalized*np.sum(dnormalized*normalized, axis=0, keepdims=True)))
+    dx = np.reshape(dx.T, newshape=(N,C,H,W))
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ###########################################################################
